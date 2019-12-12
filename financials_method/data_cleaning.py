@@ -30,7 +30,7 @@ def format_raw():
     
     clean_data['variable'] = clean_data['variable'].str.strip()
     clean_data.replace('n.a.', np.nan, inplace = True)
-    
+    clean_data.replace('n.s.', np.nan, inplace = True)
     
     null_df = clean_data[clean_data.value.isna()]
     nulls = []

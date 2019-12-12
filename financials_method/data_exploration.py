@@ -52,3 +52,5 @@ ax[1].set_title("% Missing values per company")
 data_fin.dropna(subset = ['Return'], inplace = True)
 ax[2].barh(data_fin.iloc[:, 4:data_fin.shape[1]].isna().sum().sort_values().index,
            data_fin.iloc[:, 4:data_fin.shape[1]].isna().sum().sort_values().values/data_fin.shape[0])
+
+data_fin.to_csv('data/clean/cleaned_financials.csv')
