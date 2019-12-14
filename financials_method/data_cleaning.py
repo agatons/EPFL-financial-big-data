@@ -10,7 +10,7 @@ import os
 import matplotlib.pyplot as plt
 
 def format_raw():
-    data = pd.read_excel('data/raw/financials_raw_new.xlsx', index_col = 0)
+    data = pd.read_excel('../data/raw/financials_raw_new.xlsx', index_col = 0)
     
     data.rename(columns = {'Company name Latin alphabet' : 'Name', 'NACE Rev. 2, core code (4 digits)' : 'NACE code'}, inplace = True)
     data.drop(['Consolidation code', 'Country ISO code', 'City'], axis = 1, inplace = True)
@@ -52,6 +52,8 @@ def format_raw():
     clean_data = clean_data.iloc[0:tmp.shape[0], :]
     clean_data.drop(['variable', 'value'], axis = 1, inplace = True)
     
+    
+    
     #reshaping data and checking that no extra data went missing
     nulls = []
     clean_data = pd.concat([clean_data.reset_index(), tmp], axis = 1)
@@ -77,8 +79,9 @@ def save_data(clean_data):
     #Saving data
     clean_data.sort_index(inplace = True)
     clean_data.drop(clean_data[clean_data['Year'] == '2019'].index, inplace = True)
+    clean_data.rename(columns = {'P/L for period [=Net income] USD':'Net income'}, inplace = True)
     
-    clean_data.to_csv('data/clean/cleaned_financials.csv')
+    clean_data.to_csv('../data/clean/cleaned_financials.csv')
 
 cleaned = format_raw()
 save_data(cleaned)
