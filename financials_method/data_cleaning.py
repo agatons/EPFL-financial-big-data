@@ -3,35 +3,54 @@
 
 #Reformatting and cleaning the raw financials data file
 
+
 import pandas as pd
 import numpy as np
 import re
 import os
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-def format_raw():
-    data = pd.read_excel('../data/raw/financials_raw_new.xlsx', index_col = 0)
+sns.set()
+
+def format_raw(plot_changes = False):
+    '''
+    Function reads a raw data file. Renames columns, and reformats the dataframe, so that years are depicted on rows.
+    Takes in variable plot_changes, default is False. 
     
+    If plot_changes is set to True, plots amount of missing data, in different steps of the cleaning process.
+
+    Returns
+    -------
+    clean_data : Data Frame
+        clean_data has all columns cleaned, but nothing new added. At this point, 
+        the raw data file is simply formatted differently.
+    '''
+    
+    data = pd.read_excel('../data/raw/financials_raw_new.xlsx', index_col = 0)
     data.rename(columns = {'Company name Latin alphabet' : 'Name', 'NACE Rev. 2, core code (4 digits)' : 'NACE code'}, inplace = True)
     data.drop(['Consolidation code', 'Country ISO code', 'City'], axis = 1, inplace = True)
     
-    data.drop(data[data['Last avail. year']!= 2018].index , inplace = True)
+    #Set figure size and title
+    if plot_changes:
+        fig, ax = plt.subplots(3)
+        fig.set_size_inches(15,10)
+        fig.suptitle('Missing data in different files')
     
-    fig, ax = plt.subplots(3)
-    fig.set_size_inches(15,10)
-    
-    #Here we change names for the different financials, plot missing values and reshape data
+    #Format and change names for the different financials (the new columns)
     clean_data = data.melt(id_vars = ['Name', 'NACE code', 'Last avail. year'])
     clean_data.sort_values(by = ['Name', 'variable'], inplace = True)
     clean_data['Year'] = clean_data['variable'].apply(lambda x: re.findall('(\d{4})', x)[0])
     clean_data['variable'] = clean_data['variable'].apply(lambda x: re.sub('(\d{4})', '', x))
     clean_data['variable'] = clean_data['variable'].apply(lambda x: re.sub('(\n.*?)(th)', '', x))
     clean_data['variable'] = clean_data['variable'].apply(lambda x: re.sub('\n', ' ', x))
-    
     clean_data['variable'] = clean_data['variable'].str.strip()
+
+    #Replace missing values with np.nan
     clean_data.replace('n.a.', np.nan, inplace = True)
     clean_data.replace('n.s.', np.nan, inplace = True)
     
+    #Create shape of new dataframe
     null_df = clean_data[clean_data.value.isna()]
     nulls = []
     financials = []
@@ -40,8 +59,12 @@ def format_raw():
                      clean_data[clean_data['variable'] == financial].shape[0])
         financials.append(financial)
     
-    ax[0].barh(financials, nulls)
-    ax[0].set_title('Original')
+    
+    #Plot missing values in raw data file
+    if plot_changes:
+        ax[0].barh(financials, nulls)
+        ax[0].set_title('Original')
+    
     clean_data.sort_values(by = ['variable', 'Name'], inplace = True)
     tmp = pd.DataFrame()
     
@@ -52,9 +75,7 @@ def format_raw():
     clean_data = clean_data.iloc[0:tmp.shape[0], :]
     clean_data.drop(['variable', 'value'], axis = 1, inplace = True)
     
-    
-    
-    #reshaping data and checking that no extra data went missing
+    #Reshaping data and checking that no extra data went missing
     nulls = []
     clean_data = pd.concat([clean_data.reset_index(), tmp], axis = 1)
     
@@ -62,26 +83,95 @@ def format_raw():
         nulls.append(tmp[tmp[col].isna()].shape[0]/
                      tmp[col].shape[0])
     
-    ax[1].barh(financials, nulls)
-    ax[1].set_title('Temporary')
+    if plot_changes:
+        ax[1].barh(financials, nulls)
+        ax[1].set_title('Temporary')
     
     nulls = []
     for financial in financials:
         nulls.append(clean_data[clean_data[financial].isna()].shape[0]/
                      clean_data[financial].shape[0])
+
+    if plot_changes:    
+        ax[2].barh(financials, nulls)
+        ax[2].set_title('New')
     
-    ax[2].barh(financials, nulls)
-    ax[2].set_title('New')
+    clean_data.rename(columns = {'P/L for period [=Net income] USD':'Net income'}, inplace = True)
+    
     return clean_data
 
 
+#Saving data to the cleaned financials file.
 def save_data(clean_data):
-    #Saving data
     clean_data.sort_index(inplace = True)
-    clean_data.drop(clean_data[clean_data['Year'] == '2019'].index, inplace = True)
-    clean_data.rename(columns = {'P/L for period [=Net income] USD':'Net income'}, inplace = True)
-    
     clean_data.to_csv('../data/clean/cleaned_financials.csv')
+
+def add_values_to_clean(plot_missing = False):
+    '''
+    Reads the datafile that was cleaned in format_raw and modifies it by adding additional values.
+    Saves the modified data in place of the data file built in clean_raw.
+    Adds columns: 'Market price - year(+1) end USD', 'Return', 'Dividend yield' and 'logR'
+    
+    plot_missing: default false. If set to True, plots % of missing values for different financials.
+    
+    '''
+    years = 10
+    data_fin = pd.read_csv('../data/clean/cleaned_financials.csv', index_col = 'index')
+    
+    data_fin.drop('Unnamed: 0', axis = 1, inplace = True)
+    
+    #Adding the yearly return as a financial
+    data_fin['Market price - year(+1) end USD'] = np.nan
+    data_fin.sort_values(by = ['Year', 'Name'], inplace = True)
+    
+    #Add new shifted column with next years market prices.
+    temp = np.array([])
+    for year in range(2011, 2020):
+        temp = np.append(temp, data_fin[data_fin['Year'] == year]['Market price - year end USD'].values)        
+        
+    temp = np.append(temp, [np.nan]*int(len(data_fin)/years))
+    data_fin['Market price - year(+1) end USD'] = temp
+    data_fin.sort_index(inplace = True)
+    
+    #If there are no dividends change dividends to 0
+    data_fin['Dividends per share USD'].fillna(0, inplace = True)
+    data_fin['Dividend yield'] = data_fin['Dividends per share USD']/data_fin['Market price - year end USD']
+    
+    data_fin['Return'] = (data_fin['Market price - year(+1) end USD']-data_fin['Market price - year end USD'])\
+                         /data_fin['Market price - year end USD']
+    data_fin['logR'] = np.log(data_fin['Market price - year(+1) end USD']/data_fin['Market price - year end USD'])
+    
+    
+    if plot_missing:
+        #Plotting for missing values
+        fig, ax = plt.subplots(3)
+            
+        #Missing values per financial
+        fig.set_size_inches(7, 7)
+        ax[0].barh(data_fin.iloc[:, 4:data_fin.shape[1]].isna().sum().sort_values().index,
+                   data_fin.iloc[:, 4:data_fin.shape[1]].isna().sum().sort_values().values/data_fin.shape[0])
+        ax[0].set_title("% missing values per financial measure")
+        
+        #Missing values per company
+        missing_per_row = pd.DataFrame(data_fin['Name'])
+        missing_per_row['NaNs'] = data_fin.iloc[:, 4:data_fin.shape[1]].isna().sum(axis = 1)
+        
+        ax[1].plot(missing_per_row.iloc[0:int(data_fin.shape[0]/years),:].index,
+                   missing_per_row.groupby('Name').sum().sort_values(by = 'NaNs', ascending = False)/(years*data_fin.shape[1]-4))
+        ax[1].set_title("% Missing values per company")
+        
+        #Missing values per financial, when all rows with no return are dropped
+        dropped = data_fin.dropna(subset = ['Return'])
+        ax[2].barh(dropped.iloc[:, 4:dropped.shape[1]].isna().sum().sort_values().index,
+                   dropped.iloc[:, 4:dropped.shape[1]].isna().sum().sort_values().values/dropped.shape[0])
+        ax[2].set_title('% Missing values per financial, when all nan returns have been dropped.')
+    
+    data_fin = data_fin[data_fin['Year'] != 2019]
+    save_data(data_fin)
 
 cleaned = format_raw()
 save_data(cleaned)
+
+add_values_to_clean()
+
+    

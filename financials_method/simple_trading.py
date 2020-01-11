@@ -38,6 +38,7 @@ def invest_portfolio(i):
     def buy_top_20(names_preds):
         names_preds.sort_values(by = 'Prediction', ascending = False, inplace = True)
         top20 = pd.DataFrame(names_preds.iloc[:stocks, :])
+        print(top20)
         return top20
     
     
@@ -64,7 +65,7 @@ def invest_portfolio(i):
     comp_fin = comp_fin.join(companies['Year'])
     comp_fin['Prediction'] = predictions
     
-    for y in range(2010, 2018):
+    for y in range(2010, 2019):
         if y > 2010:
             value_end = calc_end_val(portfolio[y-1], companies, y)
             
@@ -83,14 +84,14 @@ def invest_portfolio(i):
 
 
 # setup toolbar
-iters = 2000
+iters = 1
 
 for i in tqdm(range(iters)):
     portfolio_val= invest_portfolio(i)
-    plt.plot(np.arange(2010, 2018), np.array(portfolio_val)/portfolio_val[0])
+    plt.plot(np.arange(2010, 2019), np.array(portfolio_val)/portfolio_val[0])
 
 
-plt.plot(np.arange(2010, 2018), omx_quart.Close.iloc[1:32:4]/omx_quart.Close.iloc[1], label = 'Index', color = 'black')
-plt.hlines(omx_quart.Close.iloc[29]/omx_quart.Close.iloc[1], xmin = 2010, xmax = 2018, color = 'red')
+plt.plot(np.arange(2010, 2019), omx_quart.Close.iloc[1:36:4]/omx_quart.Close.iloc[1], label = 'Index', color = 'black')
+plt.hlines(omx_quart.Close.iloc[29]/omx_quart.Close.iloc[1], xmin = 2010, xmax = 2019, color = 'red')
 plt.legend()
 plt.show()
