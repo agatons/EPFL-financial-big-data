@@ -23,6 +23,7 @@ x, y_r, y_lr = prep.prepare_data()
 y_simple = pd.Series(list(y_r))
 
 X_train, X_test, y_train, y_test = model_selection.train_test_split(x, y_lr, test_size = 0.3, random_state = 5)
+
 data_dmatrix = xgb.DMatrix(data=x,label=y_r)
 
 #Try multilinear regression

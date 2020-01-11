@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+    # -*- coding: utf-8 -*-
 """
 Created on Thu Dec 12 13:33:27 2019
 
@@ -23,8 +23,6 @@ def prepare_data(show_plot = False, year = 0):
         y_r = nona[nona['Year'] == year]['Return']
         y_logr = nona[nona['Year'] == year]['logR']
         x_fin = (nona[nona['Year'] == year].iloc[:, 4:].astype(float)).drop({'Return', 'Market price - year(+1) end USD', 'logR'}, axis = 1)
-
-
 
     if show_plot:  
         fig, axs = plt.subplots(nrows = 10, ncols = 3)
