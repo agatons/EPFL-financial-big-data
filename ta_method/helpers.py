@@ -12,11 +12,17 @@ def create_trade_df(d1='2010-01-01', d2='2020-01-01'):
     end_date = pd.to_datetime(d2)
     index = pd.date_range(start_date, periods=(end_date-start_date).days, freq='D')
     
-    columns = ['Close','signal']
+    columns = ['Close','signal', 'nr_active_trades', 'tickers']
+    
+    df = pd.DataFrame(index=index, columns=columns)
+    df.Close = [[]] * len(df.Close)
+    df.signal = [[]] * len(df.signal)
+    df.nr_active_trades = 0
+    df.tickers = [[]] * len(df.tickers)
+    
+    return df
 
-    return pd.DataFrame(index=index, columns=columns)
-
-def add_trades(trade_df, signal_df):
+def add_trades(trade_df, signal_df, ticker, max_nr_active_trades = 12):
     """
     trade_df: df with all trades from all sources
     signal_df: local df for one equity and its signals
@@ -47,18 +53,32 @@ def add_trades(trade_df, signal_df):
     
     for trade_i in range(signal_df.shape[0]//2):
         entry_date = pd.to_datetime(signal_df.index.values[2*trade_i])
-        #pd.to_datetime(datetime.datetime.fromordinal(int(signal_df.index.values[2*trade_i])))
         exit_date = pd.to_datetime(signal_df.index.values[2*trade_i+1])
-        #pd.to_datetime(datetime.datetime.fromordinal(int(signal_df.index.values[2*trade_i+1])))
-
-        if not np.logical_not(trade_df[(trade_df.index >= entry_date) &
-                                       (trade_df.index <= exit_date)]\
-                                       .isnull()).values.any():
-            # fill dates with active position with 0
-            trade_df[(trade_df.index >= entry_date+datetime.timedelta(1)) & (trade_df.index <= exit_date - datetime.timedelta(1))] = 0
-            # fill entry/exit date with price and its corresponding flag (1:buy, -1:sell)
-            trade_df.loc[entry_date] = (signal_df.Close.values[2*trade_i],1)
-            trade_df.loc[exit_date] = (signal_df.Close.values[2*trade_i+1],-1)
+        
+        sub_df = trade_df[(trade_df.index >= entry_date) & (trade_df.index <= exit_date)]
+        max_active_trades = sub_df.nr_active_trades.max()
+        
+        if max_active_trades < max_nr_active_trades: # theres room for one more trade            
+            # Add close values
+            entry_row = trade_df.loc[entry_date]
+            exit_row = trade_df.loc[exit_date]
+            
+            new_entry_row = (entry_row.Close + [signal_df.Close.values[2*trade_i]],
+                             entry_row.signal + [1],
+                             entry_row.nr_active_trades,
+                             entry_row.tickers + [ticker])
+            
+            trade_df.loc[entry_date] = new_entry_row
+            
+            new_exit_row = (exit_row.Close + [signal_df.Close.values[2*trade_i+1]],
+                            exit_row.signal + [-1],
+                            exit_row.nr_active_trades,
+                            exit_row.tickers + [ticker])
+            trade_df.loc[exit_date] = new_exit_row
+            
+            # Increment active trades
+            trade_df.loc[(trade_df.index >= entry_date) & (trade_df.index <= exit_date), 'nr_active_trades'] += 1
+           
 
 
     return trade_df

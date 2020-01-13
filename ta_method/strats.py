@@ -118,9 +118,9 @@ def momentum_strat(df):
     """
     MA_DIFF = df['ma200'][0] * 0.06
     
-    MA20_STRENGTH = 0.26
-    MA50_STRENGTH = 0.2
-    MA200_STRENGTH = -0.1
+    MA20_STRENGTH = 0.3
+    MA50_STRENGTH = 0.25
+    MA200_STRENGTH = 0
     ATR_STRENGTH = 0.3
 
     STOP_LOSS_LEVEL = .925
@@ -273,7 +273,78 @@ def twitter_price_action(df):
     else:
         return 0
     
+
+def evaluate_strat_multiple(df):
+    # always go all in in positions
+    """
+    avg gain/loss
+    nr of trades
+    nr of +/-
+    total gain/loss
+    gain
+    time in market
+    best trade
+    worst trade
+    -max drawdown
+    -max runup
+    """
+    if len(df.index) < 5:
+        return
+    # start value
+    portfolio_value = 100000
+    liquidity = portfolio_value
     
+    num_trades = df.nr_active_trades.max()
+    
+    # Only keep signal rows and relevant cols    
+    df = df[['Close', 'signal', 'tickers']]
+    #.drop(df[(df['signal'] == [])].index, axis = 0)
+    trades_result = pd.DataFrame(columns=['portfolio_value','result', 'trade_duration'])
+    trades = {}
+    entered_close = 0
+    entered_date = 0
+    for index, row in df.iterrows():
+        for trade_i in range(len(row['signal'])):
+            signal = row['signal'][trade_i]
+            ticker = row['tickers'][trade_i]
+            close = row['Close'][trade_i]
+            if signal == 1: # we entered a trade
+                num_stocks = ((portfolio_value // num_trades) // close)
+                if liquidity > num_stocks * close:
+                    liquidity -= num_stocks * close
+                else:
+                    num_stocks = liquidity // close
+                    liquidity -= num_stocks * close
+                    
+                trades[ticker] = (close, num_stocks)
+                
+            elif signal == -1:
+                num_stocks = trades[ticker][1]
+                result = (row['Close'][trade_i] - trades[ticker][0]) * num_stocks
+                portfolio_value += result
+                
+                liquidity += num_stocks * row['Close'][trade_i]
+                trades.pop(ticker)
+                trades_result = trades_result.append({'portfolio_value':portfolio_value, 'result':result, \
+                                                    'trade_duration':0}, ignore_index=True)
+                
+    trades = trades_result
+    avg_result = round(trades.result.mean(), 1)
+    num_trades = trades.shape[0]
+    num_pos_trades = trades[trades.result >= 0].shape[0]
+    num_neg_trades = trades[trades.result < 0].shape[0]
+    total_gain = round(trades[trades.result >= 0].result.sum(), 1)
+    total_loss = round(trades[trades.result < 0].result.sum(), 1)
+    gain = round(trades.result.sum(), 1)
+    best_trade = round(trades.result.max(), 1)
+    worst_trade = round(trades.result.min(), 1)
+    time_in_market = trades.trade_duration.sum()
+    
+    result = {'avg_result':avg_result, 'num_trades':num_trades, 'num_pos_trades':num_pos_trades, 'num_neg_trades':num_neg_trades,
+              'total_gain':total_gain, 'total_loss':total_loss, 'gain':gain, 'best_trade':best_trade, 'worst_trade':worst_trade,
+              'time_in_market':time_in_market, 'trades':trades, 'buy_and_hold':0, 'result_buy_hold':0}
+    
+    return result
 
 def evaluate_strat(df):
     # always go all in in positions
@@ -421,3 +492,37 @@ def plot_trades(df, portfolio_value=100000):
     plt.show()
             
     
+def plot_trades_multiple(df, portfolio_value=100000):
+    num_trades = df.nr_active_trades.max()
+    trades = {}
+    df['portfolio_value'] = portfolio_value
+    liquidity = portfolio_value
+    for index, row in df.iterrows():
+        for trade_i in range(len(row['signal'])):
+            signal = row['signal'][trade_i]
+            ticker = row['tickers'][trade_i]
+            close = row['Close'][trade_i]
+            
+            if signal == 1: # we entered a trade
+                num_stocks = ((portfolio_value // num_trades) // close)
+                if liquidity > num_stocks * close:
+                    liquidity -= num_stocks * close
+                else:
+                    num_stocks = liquidity // close
+                    liquidity -= num_stocks * close
+                    
+                trades[ticker] = (close, num_stocks)
+                
+            elif signal == -1:
+                num_stocks = trades[ticker][1]
+                result = (row['Close'][trade_i] - trades[ticker][0]) * num_stocks
+                portfolio_value += result
+                df[df.index >= pd.to_datetime(index)] = portfolio_value
+                
+                liquidity += num_stocks * row['Close'][trade_i]
+                trades.pop(ticker)
+    plt.title('Portfolio value after trades')
+    plt.xlabel('Date')
+    plt.ylabel('Portfolio value')
+    plt.plot(df.index, df.portfolio_value)
+    plt.show()
