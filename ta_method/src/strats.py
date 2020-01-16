@@ -1,20 +1,102 @@
 import pandas as pd
 import numpy as np
-from helpers import roll
+from src.helpers import roll
 from datetime import datetime
+from datetime import timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
 from scipy.stats import linregress
 import trendln
 import talib
-from imp import reload
-import helpers
-reload(helpers)
-import helpers
+
+import src.helpers as helpers
+
 
 ACTIVE_POSITION = False
 LAST_TRADE = 0
 STOP_LOSS_PRICE = 0
+
+def data_momentum(df):
+    window_size = 20
+    data = df.copy()
+    data['ma20'] = talib.SMA(data.Close, timeperiod=20)
+    data['ma50'] = talib.SMA(data.Close, timeperiod=50)
+    data['ma200'] = talib.SMA(data.Close, timeperiod=200)
+    
+    data['atr'] = talib.ATR(data.High, data.Low, data.Close)
+    
+    data['rsi'] = talib.RSI(data.Close, timeperiod=14)
+    data.dropna(inplace=True)
+    # If data is too sparse
+    if data.shape[0] < window_size:
+        df['signal'] = 0
+        return df
+    roll_data = data.iloc[::-1]
+    data['signal'] = helpers.roll(roll_data, window_size).apply(momentum_strat)
+    # No trading in the "future"
+    data['signal'] = data['signal'].shift()
+    data.dropna(inplace=True)
+    
+    return data
+    
+    
+def momentum_strat(df):
+    """
+    req: ma50 ma200 rsi14
+         rolling: 20
+    """
+    global ACTIVE_POSITION
+    global STOP_LOSS_PRICE
+        
+    # Adjustables
+    MA_DIFF = df['ma200'][0] * 0.06
+    
+    MA20_STRENGTH = 0.3
+    MA50_STRENGTH = 0.25
+    MA200_STRENGTH = 0
+    ATR_STRENGTH = 0.3
+
+    STOP_LOSS_LEVEL = .925
+    # Trailing stop loss
+    if STOP_LOSS_PRICE < .9 * df.Close[0]:
+        STOP_LOSS_PRICE = .9 * df.Close[0]
+    
+    ma_above = df['ma50'][0] - df['ma200'][0] > MA_DIFF # ma50 above ma200?
+    ma_below = df['ma50'][0] - df['ma200'][0] < -MA_DIFF
+   
+    ma20_slope = helpers.calc_slope(df['ma20'].iloc[::-1])
+    ma50_slope = helpers.calc_slope(df['ma50'].iloc[::-1])
+    ma200_slope = helpers.calc_slope(df['ma200'].iloc[::-1])
+    atr_slope = helpers.calc_slope(df['atr'].iloc[::-1])
+    
+    # Rsi trend calculations
+    rsi_uptrend, rsi_downtrend = helpers.calc_rsi_trend(df.rsi.iloc[::-1])
+    price_uptrend, price_downtrend  = helpers.calc_rsi_trend(df.Close.iloc[::-1])
+    
+    buy_signal = 0
+    sell_signal = 0
+
+    if (ma_above and rsi_uptrend and price_uptrend and ma50_slope > MA50_STRENGTH and 
+        ma20_slope > MA20_STRENGTH and ma200_slope > MA200_STRENGTH and atr_slope < ATR_STRENGTH):
+        buy_signal = 1
+    
+    # losing momentum, sell
+    if (ma_below and ma50_slope < -MA50_STRENGTH and
+        rsi_downtrend and price_downtrend) or df.Close[0] < STOP_LOSS_PRICE:
+        sell_signal = 1
+        
+    
+    if (sell_signal and ACTIVE_POSITION):
+        ACTIVE_POSITION = False
+        return -1
+    elif (buy_signal and not ACTIVE_POSITION):
+        ACTIVE_POSITION = True
+        STOP_LOSS_PRICE = df.Close[0] * STOP_LOSS_LEVEL
+        return 1
+    else:
+        return 0
+
+
 
 def data_mean_revert(df):
     window_size = 5
@@ -33,6 +115,8 @@ def data_mean_revert(df):
     
     roll_data = data.iloc[::-1]
     data['signal'] = helpers.roll(roll_data, window_size).apply(mean_revert_strat)
+    # No trading in the "future"
+    data['signal'] = data['signal'].shift()
     data.dropna(inplace=True)
     
     return data
@@ -75,172 +159,6 @@ def mean_revert_strat(df):
     else:
         return 0
     
-def data_momentum(df):
-    window_size = 20
-    data = df.copy()
-    data['ma20'] = talib.SMA(data.Close, timeperiod=20)
-    data['ma50'] = talib.SMA(data.Close, timeperiod=50)
-    data['ma200'] = talib.SMA(data.Close, timeperiod=200)
-    
-    data['atr'] = talib.ATR(data.High, data.Low, data.Close)
-    
-    data['rsi'] = talib.RSI(data.Close, timeperiod=14)
-    data.dropna(inplace=True)
-    # If data is too sparse
-    if data.shape[0] < window_size:
-        df['signal'] = 0
-        return df
-    roll_data = data.iloc[::-1]
-    data['signal'] = helpers.roll(roll_data, window_size).apply(momentum_strat)
-    data.dropna(inplace=True)
-    
-    return data
-    
-    
-def momentum_strat(df):
-    """
-    req: ma50 ma200 rsi14
-         rolling: 20
-    """
-    global ACTIVE_POSITION
-    global STOP_LOSS_PRICE
-        
-    # Adjustables
-    """
-    MA_DIFF = df['ma200'][0] * 0.03
-    
-    MA20_STRENGTH = 0.23
-    MA50_STRENGTH = 0.15
-    MA200_STRENGTH = -0.1
-    ATR_STRENGTH = 0.5
-
-    STOP_LOSS_LEVEL = .925
-    """
-    MA_DIFF = df['ma200'][0] * 0.06
-    
-    MA20_STRENGTH = 0.3
-    MA50_STRENGTH = 0.25
-    MA200_STRENGTH = 0
-    ATR_STRENGTH = 0.3
-
-    STOP_LOSS_LEVEL = .925
-    # Trailing stop loss
-    if STOP_LOSS_PRICE < .9 * df.Close[0]:
-        STOP_LOSS_PRICE = .9 * df.Close[0]
-    
-    ma_above = df['ma50'][0] - df['ma200'][0] > MA_DIFF # ma50 above ma200?
-    ma_below = df['ma50'][0] - df['ma200'][0] < -MA_DIFF
-   
-    ma20_slope = helpers.calc_slope(df['ma20'].iloc[::-1])
-    ma50_slope = helpers.calc_slope(df['ma50'].iloc[::-1])
-    ma200_slope = helpers.calc_slope(df['ma200'].iloc[::-1])
-    atr_slope = helpers.calc_slope(df['atr'].iloc[::-1])
-    
-    # Rsi trend calculations
-    rsi_uptrend, rsi_downtrend = helpers.calc_rsi_trend(df.rsi.iloc[::-1])
-    price_uptrend, price_downtrend  = helpers.calc_rsi_trend(df.Close.iloc[::-1])
-    
-    buy_signal = 0
-    sell_signal = 0
-    
-    # divergence
-    #if (rsi_uptrend and price_downtrend and ma20_slope < -MA20_STRENGTH):#price_slope < -PRICE_STRENGTH):
-    #    buy_signal = 1
-    
-    # momentum
-    if (ma_above and rsi_uptrend and price_uptrend and ma50_slope > MA50_STRENGTH and ma20_slope > MA20_STRENGTH and ma200_slope > MA200_STRENGTH and atr_slope < ATR_STRENGTH):
-        buy_signal = 1
-    
-    # losing momentum, sell
-    if (ma_below and ma50_slope < -MA50_STRENGTH and rsi_downtrend and price_downtrend) or df.Close[0] < STOP_LOSS_PRICE: # A bit wrong with the stop loss price
-        sell_signal = 1
-        
-    
-    if (sell_signal and ACTIVE_POSITION):
-        ACTIVE_POSITION = False
-        return -1
-    elif (buy_signal and not ACTIVE_POSITION):
-        ACTIVE_POSITION = True
-        STOP_LOSS_PRICE = df.Close[0] * STOP_LOSS_LEVEL
-        return 1
-    else:
-        return 0
-
-    
-def pattern_strat(max_min):
-    # Not like the others
-    # https://www.quantopian.com/posts/an-empirical-algorithmic-evaluation-of-technical-analysis
-    patterns = {}
-    patterns['HS'] = []
-    patterns['IHS'] = []
-    patterns['BTOP'] = []
-    patterns['BBOT'] = []
-    patterns['TTOP'] = []
-    patterns['TBOT'] = []
-    patterns['RTOP'] = []
-    patterns['RBOT'] = []
-    
-    for i in range(5, len(max_min)):
-        window = max_min.iloc[i-5:i]
-
-        # pattern must play out in less than 36 days
-        if window.index[-1] - window.index[0] > 35:
-            continue
-
-        # Using the notation from the paper to avoid mistakes
-        e1 = window.iloc[0]
-        e2 = window.iloc[1]
-        e3 = window.iloc[2]
-        e4 = window.iloc[3]
-        e5 = window.iloc[4]
-
-        rtop_g1 = np.mean([e1,e3,e5])
-        rtop_g2 = np.mean([e2,e4])
-        # Head and Shoulders
-        if (e1 > e2) and (e3 > e1) and (e3 > e5) and \
-            (abs(e1 - e5) <= 0.03*np.mean([e1,e5])) and \
-            (abs(e2 - e4) <= 0.03*np.mean([e1,e5])):
-                patterns['HS'].append((window.index[0], window.index[-1]))
-
-        # Inverse Head and Shoulders
-        elif (e1 < e2) and (e3 < e1) and (e3 < e5) and \
-            (abs(e1 - e5) <= 0.03*np.mean([e1,e5])) and \
-            (abs(e2 - e4) <= 0.03*np.mean([e1,e5])):
-                patterns['IHS'].append((window.index[0], window.index[-1]))
-
-        # Broadening Top
-        elif (e1 > e2) and (e1 < e3) and (e3 < e5) and (e2 > e4):
-            patterns['BTOP'].append((window.index[0], window.index[-1]))
-
-        # Broadening Bottom
-        elif (e1 < e2) and (e1 > e3) and (e3 > e5) and (e2 < e4):
-            patterns['BBOT'].append((window.index[0], window.index[-1]))
-
-        # Triangle Top
-        elif (e1 > e2) and (e1 > e3) and (e3 > e5) and (e2 < e4):
-            patterns['TTOP'].append((window.index[0], window.index[-1]))
-
-        # Triangle Bottom
-        elif (e1 < e2) and (e1 < e3) and (e3 < e5) and (e2 > e4):
-            patterns['TBOT'].append((window.index[0], window.index[-1]))
-
-        # Rectangle Top
-        elif (e1 > e2) and (abs(e1-rtop_g1)/rtop_g1 < 0.0075) and \
-            (abs(e3-rtop_g1)/rtop_g1 < 0.0075) and (abs(e5-rtop_g1)/rtop_g1 < 0.0075) and \
-            (abs(e2-rtop_g2)/rtop_g2 < 0.0075) and (abs(e4-rtop_g2)/rtop_g2 < 0.0075) and \
-            (min(e1, e3, e5) > max(e2, e4)):
-
-            patterns['RTOP'].append((window.index[0], window.index[-1]))
-
-        # Rectangle Bottom
-        elif (e1 < e2) and (abs(e1-rtop_g1)/rtop_g1 < 0.0075) and \
-            (abs(e3-rtop_g1)/rtop_g1 < 0.0075) and (abs(e5-rtop_g1)/rtop_g1 < 0.0075) and \
-            (abs(e2-rtop_g2)/rtop_g2 < 0.0075) and (abs(e4-rtop_g2)/rtop_g2 < 0.0075) and \
-            (max(e1, e3, e5) > min(e2, e4)):
-            patterns['RBOT'].append((window.index[0], window.index[-1]))
-            
-    return patterns
-
     
 def twitter_price_action(df):
     """
@@ -275,39 +193,18 @@ def twitter_price_action(df):
     
 
 def evaluate_strat_multiple(df):
-    # always go all in in positions
-    """
-    avg gain/loss
-    nr of trades
-    nr of +/-
-    total gain/loss
-    gain
-    time in market
-    best trade
-    worst trade
-    -max drawdown
-    -max runup
-    """
-    if len(df.index) < 5:
-        return
     # start value
+    df = df.sort_index()
     portfolio_value = 100000
     liquidity = portfolio_value
     
     num_trades = df.nr_active_trades.max()
     
-    # Only keep signal rows and relevant cols    
-    df = df[['Close', 'signal', 'tickers']]
-    #.drop(df[(df['signal'] == [])].index, axis = 0)
     trades_result = pd.DataFrame(columns=['portfolio_value','result', 'trade_duration'])
     trades = {}
-    entered_close = 0
-    entered_date = 0
-    for index, row in df.iterrows():
-        for trade_i in range(len(row['signal'])):
-            signal = row['signal'][trade_i]
-            ticker = row['tickers'][trade_i]
-            close = row['Close'][trade_i]
+    dates = df.index.get_level_values(0).unique()
+    for date in dates:
+        for (_, ticker), (close, signal, _) in df.loc[(date, slice(None)),:].iterrows():
             if signal == 1: # we entered a trade
                 num_stocks = ((portfolio_value // num_trades) // close)
                 if liquidity > num_stocks * close:
@@ -320,14 +217,13 @@ def evaluate_strat_multiple(df):
                 
             elif signal == -1:
                 num_stocks = trades[ticker][1]
-                result = (row['Close'][trade_i] - trades[ticker][0]) * num_stocks
+                result = (close - trades[ticker][0]) * num_stocks
                 portfolio_value += result
                 
-                liquidity += num_stocks * row['Close'][trade_i]
+                liquidity += num_stocks * close
                 trades.pop(ticker)
                 trades_result = trades_result.append({'portfolio_value':portfolio_value, 'result':result, \
                                                     'trade_duration':0}, ignore_index=True)
-                
     trades = trades_result
     avg_result = round(trades.result.mean(), 1)
     num_trades = trades.shape[0]
@@ -493,36 +389,71 @@ def plot_trades(df, portfolio_value=100000):
             
     
 def plot_trades_multiple(df, portfolio_value=100000):
+    min_date = df.index.get_level_values(0).min() - timedelta(days=10)
+    max_date = df.index.get_level_values(0).max() + timedelta(days=10)
+    index = pd.date_range(min_date, periods=(max_date-min_date).days, freq='D')
+    money_df = pd.DataFrame(index=index, columns=['portfolio_value', 'liquidity'])
+    money_df['portfolio_value'] = portfolio_value
+    money_df['liquidity'] = portfolio_value
+    
+    portfolio_df = pd.DataFrame(columns=['Date', 'ticker', 'stock_amount', 'position_value']).set_index(['Date', 'ticker'])
+    
     num_trades = df.nr_active_trades.max()
     trades = {}
-    df['portfolio_value'] = portfolio_value
     liquidity = portfolio_value
-    for index, row in df.iterrows():
-        for trade_i in range(len(row['signal'])):
-            signal = row['signal'][trade_i]
-            ticker = row['tickers'][trade_i]
-            close = row['Close'][trade_i]
-            
+    dates = df.index.get_level_values(0).unique().sort_values()
+    for date in dates:
+        for (_, ticker), (close, signal, _) in df.loc[(date, slice(None)),:].sort_values(by='signal', ascending=False).iterrows():
             if signal == 1: # we entered a trade
                 num_stocks = ((portfolio_value // num_trades) // close)
-                if liquidity > num_stocks * close:
-                    liquidity -= num_stocks * close
-                else:
+                if liquidity <= num_stocks * close:
                     num_stocks = liquidity // close
-                    liquidity -= num_stocks * close
-                    
-                trades[ticker] = (close, num_stocks)
+                liquidity -= num_stocks * close
+                money_df.loc[money_df.index >= pd.to_datetime(date), 'liquidity'] = liquidity
+                trades[ticker] = (close, num_stocks, date)
                 
             elif signal == -1:
                 num_stocks = trades[ticker][1]
-                result = (row['Close'][trade_i] - trades[ticker][0]) * num_stocks
-                portfolio_value += result
-                df[df.index >= pd.to_datetime(index)] = portfolio_value
+                result = (close - trades[ticker][0]) * num_stocks
                 
-                liquidity += num_stocks * row['Close'][trade_i]
+                portfolio_value += result
+                money_df.loc[money_df.index >= pd.to_datetime(date), 'portfolio_value'] = portfolio_value
+                liquidity += num_stocks * close
+                money_df.loc[money_df.index > pd.to_datetime(date), 'liquidity'] = liquidity
+                
+                entry_date = trades[ticker][2]
+                investment_dates = pd.date_range(entry_date, periods=(date-entry_date).days+1, freq='D')
+                portfolio_df=portfolio_df.append(pd.DataFrame({'Date':investment_dates, 'ticker':ticker,
+                                                               'stock_amount':int(num_stocks)}).set_index(['Date', 'ticker']), sort=True)
+                
                 trades.pop(ticker)
-    plt.title('Portfolio value after trades')
+    portfolio_df = portfolio_df.sort_index()
+    # Calculate every day portfolio value
+    tickers = portfolio_df.index.get_level_values(1).unique()
+    for t in tickers:
+        t_dates = portfolio_df.loc[(slice(None),t), :].index.get_level_values(0)
+        t_df = helpers.get_stock_data(t)
+        t_df = t_df[t_df.index.isin(t_dates)]
+        t_df = t_df.reindex(t_dates, method='ffill').fillna(0)
+        
+        assert len(t_df) == len(t_dates)
+        portfolio_df.loc[(slice(None),t), 'position_value'] = portfolio_df.loc[(slice(None),t), 'stock_amount'] * t_df.Close.values
+        portfolio_df = portfolio_df.sort_index()
+        
+    money_df['positions_value'] = portfolio_df.groupby('Date').agg({'position_value':'sum'})\
+                                    .reindex(money_df.index, fill_value=0).position_value
+    money_df['portfolio_value'] = money_df.liquidity + money_df.positions_value
+                
+    plt.figure(figsize=(12,5))
+    plt.subplot(1,2,1)
+    plt.title('Portfolio value each date')
     plt.xlabel('Date')
     plt.ylabel('Portfolio value')
-    plt.plot(df.index, df.portfolio_value)
+    plt.plot(money_df.index, money_df.portfolio_value)
+    plt.subplot(1,2,2)
+    plt.title('Liquidity each date')
+    plt.xlabel('Date')
+    plt.ylabel('Liquidity value')
+    plt.plot(money_df.index, money_df.liquidity)
     plt.show()
+    return money_df, portfolio_df
