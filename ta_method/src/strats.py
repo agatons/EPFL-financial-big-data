@@ -323,9 +323,9 @@ def print_evaluation(dic):
     plt.show()
            
     
-def plot_trades(df, portfolio_value=100000):
+def get_portfolio_value(df, portfolio_value=100000):
     """
-    Plots the liquidity and portfolio value per day.
+    Get portfolio value per day.
     
     Input: df -> pandas dataframe with index = [Date, ticker]
             and columns = [Close, signal, nr_of_trades_active]
@@ -334,8 +334,6 @@ def plot_trades(df, portfolio_value=100000):
            
     Returns:
         money_df -> pandas dataframe with date as index and portfolio value and liqudity as columns.
-        portfolio_df -> pandas dataframe with dates where signals were generated and which ticker and 
-                        close value these signal correspond to
     """
     
     
@@ -394,6 +392,7 @@ def plot_trades(df, portfolio_value=100000):
                                     .reindex(money_df.index, fill_value=0).position_value
     money_df['portfolio_value'] = money_df.liquidity + money_df.positions_value
                 
+    """
     plt.figure(figsize=(12,5))
     plt.subplot(1,2,1)
     plt.title('Portfolio value each date')
@@ -406,4 +405,5 @@ def plot_trades(df, portfolio_value=100000):
     plt.ylabel('Liquidity value')
     plt.plot(money_df.index, money_df.liquidity)
     plt.show()
-    return money_df, portfolio_df
+    """
+    return money_df
