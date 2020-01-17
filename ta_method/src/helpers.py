@@ -10,13 +10,16 @@ import datetime
 import src.strats as strats
 
 def create_trade_df():
+    """
+    Create the trade df
+    """
     columns = ['Date', 'ticker','Close','signal', 'nr_active_trades']
     df = pd.DataFrame(columns=columns)
     df = df.set_index(['Date', 'ticker']) # Init multi index
     
     return df
 
-def get_trade_df(signal_dfs, max_nr_active_trades = 12, d1='2010-01-01', d2='2020-01-01'):
+def get_trade_df(signal_dfs, max_nr_active_trades = 5, d1='2010-01-01', d2='2020-01-01'):
     """
     trade_df: df with all trades from all sources
     signal_df: local df for one equity and its signals
@@ -76,6 +79,9 @@ def get_stock_data(ticker_name, path = r'../data/clean/swe_equ'):
     return pd.read_csv(file_name, parse_dates=['Date'], index_col=['Date'])
 
 def evaluate_saved_trades(filename):
+    """
+    Evaluate a saved trade_df's trades
+    """
     trade_df = pd.read_csv(filename, parse_dates=['Date']).set_index(['Date','ticker']).sort_index()
     money_df, portfolio_df = strats.plot_trades_multiple(trade_df)
     result = strats.evaluate_strat_multiple(trade_df)
@@ -83,6 +89,11 @@ def evaluate_saved_trades(filename):
     return trade_df, money_df, result
 
 def roll(df, w, **kwargs):
+    """
+    Roll a df.
+    Input: df -> df to be rolled
+           w  -> the length of the rolling window
+    """
     v = df.values
     d0, d1 = v.shape
     s0, s1 = v.strides
@@ -97,6 +108,10 @@ def roll(df, w, **kwargs):
     return rolled_df.groupby(level=0, **kwargs)
 
 def find_max_min(prices):
+    """
+    Get min and max of a series consisting of prices
+    """
+    
     prices_ = prices.copy()
     prices_.index = np.linspace(1., len(prices_), len(prices_))
     kr = KernelReg([prices_.values], [prices_.index.values], var_type='c', bw=[1.8])
@@ -131,13 +146,24 @@ def find_max_min(prices):
 
 
 def calc_slope(serie):
+    """
+    Get the slope value of a serie's values
+    
+    Input: a pandas serie with e.g. close values
+    Returns: the slope of the series, a float value
+    """
     serie = serie.values
     slope, _, _, _, _ = linregress(np.arange(len(serie)), serie) # calulate slope 
     slope = slope/serie[0]*100 #normalize
     return slope
 
 def calc_rsi_trend(rsi_serie):
-    # Rsi trend calculations
+    """
+    Get the slope direction of a serie's values
+    
+    Input: a pandas serie with e.g. rsi values
+    Returns: uptrend?, downtrend?
+    """
     
     rsi_serie = rsi_serie.values
     minimaIdxs, maximaIdxs = trendln.get_extrema(rsi_serie)
@@ -154,13 +180,14 @@ def calc_rsi_trend(rsi_serie):
         max_slope, max_inter, _, _, _ = linregress(maximaIdxs, max_values) # calulate slope 
     
     return max_slope > 0 and min_slope > 0, max_slope < 0 and min_slope < 0
-    return round(max_slope, 2), round(min_slope, 2)
-    return rsi_uptrend, rsi_downtrend
 
     
 def get_patterns(max_min):
-    # Not like the others
-    # https://www.quantopian.com/posts/an-empirical-algorithmic-evaluation-of-technical-analysis
+    """
+    Taken from:
+        https://www.quantopian.com/posts/an-empirical-algorithmic-evaluation-of-technical-analysis
+        Searches for a few famous patterns in a stock's prices
+    """
     patterns = {}
     patterns['HS'] = []
     patterns['IHS'] = []

@@ -22,6 +22,6 @@ all_dfs = dask.compute(allpromises)
 
 trade_df = helpers.get_trade_df(all_dfs[0])
 
-strats.plot_trades_multiple(trade_df.copy())
-result = strats.evaluate_strat_multiple(trade_df)
+strats.plot_trades(trade_df.copy())
+result = strats.evaluate_strat(trade_df)
 strats.print_evaluation(result)

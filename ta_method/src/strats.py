@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from src.helpers import roll
+from src.helpers import *
 from datetime import datetime
 from datetime import timedelta
 import matplotlib.pyplot as plt
@@ -17,6 +17,14 @@ LAST_TRADE = 0
 STOP_LOSS_PRICE = 0
 
 def data_momentum(df):
+    """
+    Get the signal data of a stock's dataframe
+    
+    Input: df -> a stock's dataframe
+    
+    Returns: the signal data
+    """
+    
     window_size = 20
     data = df.copy()
     data['ma20'] = talib.SMA(data.Close, timeperiod=20)
@@ -99,6 +107,13 @@ def momentum_strat(df):
 
 
 def data_mean_revert(df):
+    """
+    Get the signal data of a stock's dataframe
+    
+    Input: df -> a stock's dataframe
+    
+    Returns: the signal data
+    """
     window_size = 5
     data = df.copy()
     data['ma200'] = talib.SMA(data.Close, timeperiod=200)
@@ -192,10 +207,19 @@ def twitter_price_action(df):
         return 0
     
 
-def evaluate_strat_multiple(df):
-    # start value
+def evaluate_strat(df, portfolio_value = 100000):
+    """
+    Evaluates a strategy.
+    
+        Input: df -> pandas dataframe with index = [Date, ticker]
+            and columns = [Close, signal, nr_of_trades_active]
+           
+           portfolio_value -> the strating value of the portfolio
+           
+        Returns: the evaluation dictionary with various evaluation values.
+    """
+    
     df = df.sort_index()
-    portfolio_value = 100000
     liquidity = portfolio_value
     
     num_trades = df.nr_active_trades.max()
@@ -242,73 +266,6 @@ def evaluate_strat_multiple(df):
     
     return result
 
-def evaluate_strat(df):
-    # always go all in in positions
-    """
-    avg gain/loss
-    nr of trades
-    nr of +/-
-    total gain/loss
-    gain
-    time in market
-    best trade
-    worst trade
-    -max drawdown
-    -max runup
-    """
-    if len(df.index) < 5:
-        return
-    portfolio_value = 100000
-    # Used for calculating time in the market
-    time_window = (pd.to_datetime(df.index[-1]) - pd.to_datetime(df.index[0])).days
-    buy_and_hold = (portfolio_value//df.Close[0])*df.Close[-1]+(portfolio_value%df.Close[0]) - portfolio_value
-    # Only keep signal rows and relevant cols    
-    df = df.drop(df[(df['signal'] != 1) & (df['signal'] != -1) & (df.index != df.index[-1])].index, axis = 0)[['Close', 'signal']]
-    
-    trades = pd.DataFrame(columns=['portfolio_value','result', 'trade_duration'])
-    active_trade = False
-    entered_close = 0
-    entered_date = 0
-    for index, row in df.iterrows():
-        if (not active_trade and row['signal'] == 1): # Entered market
-            active_trade = True 
-            entered_close = row['Close']
-            entered_date = pd.to_datetime(index)
-
-        elif (active_trade and row['signal'] == -1): # Left market
-            active_trade = False 
-            result = (row['Close'] - entered_close)*(portfolio_value//entered_close)
-            portfolio_value += result
-            trade_duration = pd.to_datetime(index) - entered_date
-            trades = trades.append({'portfolio_value':portfolio_value, 'result':result, \
-                                    'trade_duration':trade_duration.days}, ignore_index=True)
-            
-    if active_trade: # position was still active
-        row = df.iloc[-1,:]
-        index = df.index[-1]
-        
-        result = (row['Close'] - entered_close)*(portfolio_value//entered_close)
-        portfolio_value += result
-        trade_duration = pd.to_datetime(index) - entered_date
-        trades = trades.append({'portfolio_value':portfolio_value, 'result':result, \
-                                'trade_duration':trade_duration.days}, ignore_index=True)
-    
-    avg_result = round(trades.result.mean(), 1)
-    num_trades = trades.shape[0]
-    num_pos_trades = trades[trades.result >= 0].shape[0]
-    num_neg_trades = trades[trades.result < 0].shape[0]
-    total_gain = round(trades[trades.result >= 0].result.sum(), 1)
-    total_loss = round(trades[trades.result < 0].result.sum(), 1)
-    gain = round(trades.result.sum(), 1)
-    best_trade = round(trades.result.max(), 1)
-    worst_trade = round(trades.result.min(), 1)
-    time_in_market = trades.trade_duration.sum()/time_window
-    
-    result = {'avg_result':avg_result, 'num_trades':num_trades, 'num_pos_trades':num_pos_trades, 'num_neg_trades':num_neg_trades,
-              'total_gain':total_gain, 'total_loss':total_loss, 'gain':gain, 'best_trade':best_trade, 'worst_trade':worst_trade,
-              'time_in_market':time_in_market, 'trades':trades, 'buy_and_hold':buy_and_hold, 'result_buy_hold':gain/buy_and_hold}
-    
-    return result
     
 def print_evaluation(dic):
     """
@@ -364,31 +321,24 @@ def print_evaluation(dic):
 
     
     plt.show()
+           
     
-def plot_trades(df, portfolio_value=100000):    
-    df['portfolio_value'] = portfolio_value
-    active_trade = False
-    entered_close = 0
-    entered_date = 0
-    for index, row in df.iterrows():
-        if (not active_trade and row['signal'] == 1): # Entered market
-            active_trade = True 
-            entered_close = row['Close']
-            entered_date = pd.to_datetime(index)
-
-        elif (active_trade and row['signal'] == -1): # Left market
-            active_trade = False 
-            result = (row['Close'] - entered_close)*(portfolio_value//entered_close)
-            portfolio_value += result
-            df[df.index >= pd.to_datetime(index)] = portfolio_value
-    plt.title('Portfolio value after trades')
-    plt.xlabel('Date')
-    plt.ylabel('Portfolio value')
-    plt.plot(df.index, df.portfolio_value)
-    plt.show()
-            
+def plot_trades(df, portfolio_value=100000):
+    """
+    Plots the liquidity and portfolio value per day.
     
-def plot_trades_multiple(df, portfolio_value=100000):
+    Input: df -> pandas dataframe with index = [Date, ticker]
+            and columns = [Close, signal, nr_of_trades_active]
+           
+           portfolio_value -> the strating value of the portfolio
+           
+    Returns:
+        money_df -> pandas dataframe with date as index and portfolio value and liqudity as columns.
+        portfolio_df -> pandas dataframe with dates where signals were generated and which ticker and 
+                        close value these signal correspond to
+    """
+    
+    
     min_date = df.index.get_level_values(0).min() - timedelta(days=10)
     max_date = df.index.get_level_values(0).max() + timedelta(days=10)
     index = pd.date_range(min_date, periods=(max_date-min_date).days, freq='D')
