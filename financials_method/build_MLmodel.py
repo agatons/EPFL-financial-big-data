@@ -3,7 +3,6 @@
 @author: Emil Immonen
 """
 
-from sklearn import datasets, linear_model, model_selection
 import xgboost as xgb
 import matplotlib.pyplot as plt
 
@@ -13,7 +12,6 @@ def train_xgb(X_train, y_train, X_test, y_test, early_stopping = False, plot_tra
     xg_reg = xgb.XGBRegressor(max_depth = 1000, learning_rate = 0.1, n_estimators = 100, objective ='reg:squarederror', 
                               colsample_bytree = 0.5, alpha = 1)
     
-
     eval_set = [(X_train, y_train), (X_test, y_test)]
     
     if early_stopping:

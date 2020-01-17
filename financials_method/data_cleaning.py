@@ -7,7 +7,6 @@ Builds the cleaned dataset into a suitable form for training an ML model
 import pandas as pd
 import numpy as np
 import re
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 
