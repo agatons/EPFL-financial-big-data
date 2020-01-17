@@ -81,7 +81,7 @@ def annualized_r(first, last, t = 6):
     '''
     Calculates the annualized return of a portfolio. With default portfolio time = 6.
     '''
-    r = ((last/first)+1)**(1/t)
+    r = ((last/first)+1)**(1/t)-1
     return r
 
 def sharpe_ratio(rp, sigma, rf = 0):
