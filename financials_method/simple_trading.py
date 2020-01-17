@@ -2,96 +2,132 @@
 """
 Created on Thu Dec 12 15:38:09 2019
 
-@author: Emil
+@author: Emil Immonen
+
+Runs the financials investing method. Reads cleaned data files, runs "prepare_data_for_ml.py" 
+and "build_ML_model.py" in order to train a gradient boosting model. Additionally, invests
+for a given time frame and prints and plots out strategy performance.
 """
 
 import pandas as pd
-import yfinance as yf
-import machine_learning_test as mlt
-import prepare_data_for_ml as prep
-import re
 import numpy as np
-from sklearn import model_selection
 import matplotlib.pyplot as plt
-import time
-from tqdm import tqdm
+import seaborn as sns
 
-companies = pd.read_csv('../data/clean/cleaned_financials.csv', index_col = 'index')
-omxs = yf.Ticker('^OMX')
-omx_quart = omxs.history(period = '10y', interval = '3mo')
+from sklearn import model_selection
 
-tickers = pd.read_excel('../data/raw/financials_tickers.xlsx', index_col = 'Unnamed: 0')
-tickers['Ticker symbol'] = tickers['Ticker symbol'].apply(lambda x: re.sub('\.', '-', x))
-tickers['Ticker symbol'] = tickers['Ticker symbol'].apply(lambda x: re.sub('$', '.ST', x))
+import build_MLmodel as mlt
+import prepare_data_for_ml as prep
+from helper_functions import *
 
-def invest_portfolio(i):
+sns.set()
+
+def build_portfolios(i, starting_cap = 100000, yf = True, start = 2010):
+    '''
+    Parameters
+    ----------
+    i : Integer
+        Random state on how to split train and test data.
+    starting_cap : Integer
+        How much starting capital you have.
+    yf : Use market price from yahoo finance (xxxx-03-01)
     
-    stocks = 20
-    comp_fin, _, y_lr = prep.prepare_data()
+    Returns
+    -------
+    portfolio_dic : Dictionary.
+        Returns a dictionary of portfolios of stocks for the years 2010-2018.
+
+    '''
+    comp_fin, _, y_lr = prep.prepare_data(drop = True, yf = yf)
+    
+    if yf:
+        prices = 'Yf Market price'
+    else:
+        prices = 'Market price - year end USD'
     
     X_train, X_test, y_train, y_test = model_selection.train_test_split(comp_fin, y_lr, test_size = 0.7, random_state=i)
     
-    model = mlt.train_xgb(X_train, y_train)
+    #Row 1249 here, as that is the first row that is years 2013-2010.
+    X_train = comp_fin.iloc[1249:]
+    y_train = y_lr.iloc[1249:]
+    X_test = comp_fin.iloc[:1249]
+    y_test = y_lr.iloc[:1249]
+    
+    model = mlt.train_xgb(X_train, y_train, X_test, y_test, early_stopping = True, plot_train = True)
+    
     predictions = model.predict(X_test)
     
+    portfolio_dic =  {}
+    portfolio_values = []
+    portfolio_values.append(starting_cap) 
     
-    def buy_top_20(names_preds):
-        names_preds.sort_values(by = 'Prediction', ascending = False, inplace = True)
-        top20 = pd.DataFrame(names_preds.iloc[:stocks, :])
-        print(top20)
-        return top20
+    comp_to_trade = X_test.join(companies[{'Name', 'Ticker'}])
+    comp_to_trade = comp_to_trade.join(companies['Year'])
+    comp_to_trade['Prediction'] = predictions
     
-    
-    def calc_end_val(portf, comp_list, year1):
-        endval = 0
-        for company in portf['Name']:
-
-            mp = comp_list[(comp_list['Year'] == year1)&(comp_list['Name'] == company)]\
-                       ['Market price - year end USD'].values
-
-            
-            sc = portf[portf['Name'] == company].Shares.values[0]
-
-            if len(mp) != 1:
-                endval += 0*sc
-            else: endval += mp[0]*sc
-    
-        return endval
-    
-    
-    portfolio =  {}
-    portfolio_value = []
-    comp_fin = X_test.join(companies['Name'])
-    comp_fin = comp_fin.join(companies['Year'])
-    comp_fin['Prediction'] = predictions
-    
-    for y in range(2010, 2019):
-        if y > 2010:
-            value_end = calc_end_val(portfolio[y-1], companies, y)
-            
+    #Build a dictionary of portfolios.
+    for y in range(start, 2019):
+        if y == start:
+            comp_to_trade_y = comp_to_trade[comp_to_trade['Year'] == y]
+            portfolio_dic[y] = buy_top_x(comp_to_trade_y[{'Name', 'Ticker', 'Prediction', prices}], cash = portfolio_values[y-start])
         else:
-            value_end = 100000
+            comp_to_trade_y = comp_to_trade[comp_to_trade['Year'] == y]
+            portfolio_dic[y] = buy_top_x(comp_to_trade_y[{'Name', 'Ticker', 'Prediction', prices}], cash = portfolio_values[y-start])
     
-        portfolio_value.append(value_end)
-        
-        comp_fin_y = comp_fin[comp_fin['Year'] == y]
-        comp_fin_y['Shares'] = (value_end/stocks/comp_fin_y['Market price - year end USD']).astype(int)
-        
-        portfolio.update({y : buy_top_20(comp_fin_y[{'Name', 'Prediction', 'Market price - year end USD', 'Shares'}])})
-        
-        
-    return portfolio_value
+        portfolio_values.append(calc_end_val(portfolio_dic[y], companies, year = y, yf = yf))
+    
+    #Plot predictions against true values.
+    plt.figure()
+    plt.scatter(y_test, predictions)
+    plt.hlines(0, min(y_test), max(y_test))
+    plt.vlines(0, min(y_test), max(y_test))
+    plt.plot(np.arange(-2, max(y_test), 0.1), min(model.evals_result()['validation_1']['rmse'])*np.arange(-2, max(y_test), 0.1), 'r')
+    plt.xlabel('True value')
+    plt.ylabel('Prediction')
+    plt.title('Predictions vs. true returns')
+    
+    return portfolio_dic, portfolio_values
 
 
-# setup toolbar
+
+companies = pd.read_csv('../data/clean/cleaned_financials.csv', index_col = 'index')
+
 iters = 1
+first_year = 2013
 
-for i in tqdm(range(iters)):
-    portfolio_val= invest_portfolio(i)
-    plt.plot(np.arange(2010, 2019), np.array(portfolio_val)/portfolio_val[0])
+#Build all the portfolios and get the yearly values amount of cash.
+portfolios, values = build_portfolios(iters, start = first_year)
 
+#Calculate the return of all the stocks in our datasets equally weighted.
+market = [1]
+for year in range(first_year, 2019):
+    r = companies[companies['Year'] == year]['Yf Return'].mean()
+    market.append(market[year-first_year]*(1+r))
 
-plt.plot(np.arange(2010, 2019), omx_quart.Close.iloc[1:36:4]/omx_quart.Close.iloc[1], label = 'Index', color = 'black')
-plt.hlines(omx_quart.Close.iloc[29]/omx_quart.Close.iloc[1], xmin = 2010, xmax = 2019, color = 'red')
+#Plot the yearly value of the portfolio compared to the market.
+plt.figure()
+plt.plot(np.arange(first_year, 2020), np.array(values)/values[0], label = 'Portfolio_'+str(iters))   
+plt.plot(np.arange(first_year, 2020), market, label = 'Market')
+plt.hlines(market[len(market)-1], xmin = first_year, xmax = 2019, color = 'red')
 plt.legend()
-plt.show()
+plt.title('Cumulative returns compared to market')
+
+#Get monthly closing data for all stocks.
+monthly_close = pd.read_pickle('../data/raw/monthly_stock.pkl')['Close']
+monthly_close = monthly_close[monthly_close.index.day == 1]
+
+#Calculate and plot the performance of the portfolio.
+port_performance(portfolios, first_year, monthly_close)
+
+#%%
+
+'''
+Save the yearly portfolios into a csv file
+'''
+
+portfolio_table = {}
+for year in portfolios.keys():
+    portfolio_table[year] = portfolios[year].Name.values
+
+portfolio_table = pd.DataFrame(portfolio_table)
+portfolio_table.to_csv('../data/portfolios/portfolio_table.csv')

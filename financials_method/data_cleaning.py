@@ -1,13 +1,12 @@
-#!/usr/bin/env python
-# coding: utf-8
+"""
+@author: Emil Immonen
 
-#Reformatting and cleaning the raw financials data file
-
+Builds the cleaned dataset into a suitable form for training an ML model
+"""
 
 import pandas as pd
 import numpy as np
 import re
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -119,12 +118,11 @@ def add_values_to_clean(plot_missing = False):
     data_fin = pd.read_csv('../data/clean/cleaned_financials.csv', index_col = 'index')
     
     data_fin.drop('Unnamed: 0', axis = 1, inplace = True)
-    
-    #Adding the yearly return as a financial
+
+    #Add new shifted column with next years market prices.    
     data_fin['Market price - year(+1) end USD'] = np.nan
     data_fin.sort_values(by = ['Year', 'Name'], inplace = True)
     
-    #Add new shifted column with next years market prices.
     temp = np.array([])
     for year in range(2011, 2020):
         temp = np.append(temp, data_fin[data_fin['Year'] == year]['Market price - year end USD'].values)        
@@ -137,6 +135,7 @@ def add_values_to_clean(plot_missing = False):
     data_fin['Dividends per share USD'].fillna(0, inplace = True)
     data_fin['Dividend yield'] = data_fin['Dividends per share USD']/data_fin['Market price - year end USD']
     
+    #Add yearly returns
     data_fin['Return'] = (data_fin['Market price - year(+1) end USD']-data_fin['Market price - year end USD'])\
                          /data_fin['Market price - year end USD']
     data_fin['logR'] = np.log(data_fin['Market price - year(+1) end USD']/data_fin['Market price - year end USD'])
@@ -169,9 +168,74 @@ def add_values_to_clean(plot_missing = False):
     data_fin = data_fin[data_fin['Year'] != 2019]
     save_data(data_fin)
 
+def combine_yf_mp():
+    data_fin = pd.read_csv('../data/clean/cleaned_financials.csv', index_col = 'index')
+    monthly = pd.read_pickle('../data/raw/monthly_stock.pkl')
+    monthly = monthly[monthly['Close']['2CUREX.ST'].index.month == 3]
+    monthly = monthly[monthly['Close']['2CUREX.ST'].index.day == 1]
+    
+    #Read ticker file
+    stocks = pd.read_excel('../data/raw/financials_tickers.xlsx', index_col = 'Unnamed: 0')
+    stocks['Ticker symbol'] = stocks['Ticker symbol'].apply(lambda x: re.sub('\.', '-', x))
+    stocks['Ticker symbol'] = stocks['Ticker symbol'].apply(lambda x: re.sub('$', '.ST', x))
+    
+    #Add a ticker column that is nan
+    data_fin['Ticker'] = np.nan
+    
+    #Add tickers to data_fin
+    for company in stocks['Company name Latin alphabet']:
+        change = data_fin[data_fin['Name'] == company].index
+        data_fin.loc[change, 'Ticker'] = stocks[stocks['Company name Latin alphabet'] == company]['Ticker symbol'].values
+    
+    #Melt market prices, so that they can be merged with data_fin
+    monthly_close = monthly['Close'].reset_index().melt(id_vars = 'Date', var_name = 'Ticker', value_name = 'Yf Market price')
+    monthly_close['Date'] = monthly_close['Date'].apply(lambda x: re.sub('-.*$', '', str(x))).astype(int)
+    
+    #Merge dataframes
+    data_fin = data_fin.reset_index().merge(monthly_close, how = 'left', left_on = ['Year', 'Ticker'],
+                                            right_on = ['Date', 'Ticker']).set_index('index')
+    data_fin.drop('Date', axis = 1, inplace = True)
+    
+    #Add new shifted column with next years market prices.
+    data_fin.sort_values(by = ['Year', 'Name'], inplace = True)
+
+    temp = np.array([])
+    for year in range(2011, 2019):
+        temp = np.append(temp, data_fin[data_fin['Year'] == year]['Yf Market price'].values)        
+    
+    #get values for 2019
+    for ticker in data_fin['Ticker'].unique():
+        temp = np.append(temp,
+                         monthly_close[(monthly_close['Date'] == 2019)&(monthly_close['Ticker'] == ticker)]['Yf Market price'].values[0])
+    
+    data_fin['Yf Market price - year(+1)'] = temp
+    data_fin.sort_index(inplace = True)
+    
+    #Add yearly returns
+    data_fin['Yf Return'] = (data_fin['Yf Market price - year(+1)']-data_fin['Yf Market price'])\
+                         /data_fin['Yf Market price']
+    data_fin['Yf logR'] = np.log(data_fin['Yf Market price - year(+1)']/data_fin['Yf Market price'])
+    
+    save_data(data_fin)
+
+def drop_outliers():
+    '''
+    Function drops abnormally high returns, as it is unclear what is the reason for the returns. 
+    In one instance the returns were a result of a stock split.
+    '''
+    data_fin = pd.read_csv('../data/clean/cleaned_financials.csv', index_col = 'index')
+    
+    plt.figure()
+    plt.scatter(data_fin.index, data_fin['Yf Return'])
+    data_fin = data_fin[data_fin['Yf Return'] < 5]
+    
+    plt.figure()
+    plt.scatter(data_fin.index, data_fin['Yf Return'])    
+    
+    save_data(data_fin)
+    
 cleaned = format_raw()
 save_data(cleaned)
-
 add_values_to_clean()
-
-    
+combine_yf_mp()
+drop_outliers()
